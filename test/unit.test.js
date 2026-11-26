@@ -109,4 +109,30 @@ test('rejects unsupported file types', async () => {
   await assert.rejects(importFile(Buffer.from('x'), 'paper.txt'), /Unsupported/);
 });
 
+test('NAT: question without options is imported as NAT with the printed range, never approved', () => {
+  const r = parseQuestions(textToHtml('1. The slip (in %) of a 1440 rpm, 50 Hz, 4-pole motor is\nAnswer: 3.9 to 4.1\n2. Value of x:\nAns: -2.5\n3. MCQ\n(A) a (B) b (C) c (D) d'));
+  assert.deepEqual(r.questions.map((q) => [q.qtype, q.nat_min, q.nat_max]), [['nat', 3.9, 4.1], ['nat', -2.5, -2.5], ['mcq', null, null]]);
+  assert.deepEqual(r.questions[0].options, []);
+  assert.match(r.questions[0].flags.join(' '), /Numerical Answer Type/);
+});
+
+test('NAT: inclusive range scoring, no negative marking; answer format check', () => {
+  const qs = [{ id: 1, qtype: 'nat', nat_min: '4.95', nat_max: '5.05', marks: 2 }, { id: 2, qtype: 'nat', nat_min: '-1.00', nat_max: '-1.00' }, { id: 3, qtype: 'mcq', correct: 1 }];
+  const ex = { marks_per_q: 1, negative_marks: 0.33 };
+  assert.deepEqual(rules.score(qs, { 1: { c: '5.05' }, 2: { c: '-1' }, 3: { c: 1 } }, ex), { attempted: 3, correct: 3, incorrect: 0, unanswered: 0, score: 4, max: 4 });
+  assert.equal(rules.score(qs, { 1: { c: '5.06' }, 2: { c: '1' } }, ex).score, 0); // two wrong NAT answers cost nothing
+  for (const ok of ['0', '-5', '12.5', '-0.75', '1234567.99']) assert.ok(rules.NAT_RE.test(ok), ok);
+  for (const bad of ['', '-', '5.', '.5', '1.234', '1e3', '12345678', '--1', '5,5']) assert.ok(!rules.NAT_RE.test(bad), bad);
+});
+
+test('calculator: functions, precedence, degrees/radians and errors', () => {
+  const { evaluate: E } = require('../public/calc.js');
+  const near = (x, v, o) => assert.ok(Math.abs(E(x, o) - v) < 1e-9, `${x} = ${E(x, o)}, expected ${v}`);
+  near('sin(30)', 0.5); near('cos(60)+tan(45)', 1.5); near('sin(π/6)', 0.5, { deg: false }); near('asin(1)', 90);
+  near('log(1000)', 3); near('ln(e)', 1); near('exp(1)', Math.E); near('10^(2)', 100); near('sqrt(16)+cbrt(27)', 7);
+  near('2^3^2', 512); near('-2^2', -4); near('5!', 120); near('2π', 2 * Math.PI); near('3(4+1)', 15); near('1/(4', 0.25);
+  near('2e+3', 2000); near('50%', 0.5); near('abs(−3.5)', 3.5); near('2×3÷4', 1.5); near('230×0.8×√(3)', 184 * Math.sqrt(3));
+  for (const bad of ['1/0', 'tan(90)', 'sqrt(-1)', '2+', '*3', 'sin', 'alert(1)']) assert.throws(() => E(bad), bad);
+});
+
 test.after(() => setImmediate(() => process.exit(process.exitCode || 0))); // OCR worker keeps the loop alive

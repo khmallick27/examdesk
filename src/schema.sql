@@ -52,6 +52,10 @@ CREATE TABLE IF NOT EXISTS questions (
   flags      JSONB NOT NULL DEFAULT '[]',
   source     TEXT NOT NULL DEFAULT 'manual'
 );
+-- GATE-style numerical answer type: the key is an inclusive range [nat_min, nat_max].
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS qtype TEXT NOT NULL DEFAULT 'mcq' CHECK (qtype IN ('mcq','nat'));
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS nat_min NUMERIC(12,2);
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS nat_max NUMERIC(12,2);
 CREATE INDEX IF NOT EXISTS questions_exam_idx ON questions(exam_id, position);
 
 CREATE TABLE IF NOT EXISTS attempts (
