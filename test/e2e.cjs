@@ -296,6 +296,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(last === 429, `expected 429, got ${last}`);
   });
 
+  await step('exam with results can be deleted only after closing; results go with it', async () => {
+    assert((await fapi('DELETE', `/api/exams/${examId}`)).status() === 409, 'published exam with results was deletable');
+    assert((await fapi('POST', `/api/exams/${examId}/close`)).ok(), 'close failed');
+    assert((await fapi('DELETE', `/api/exams/${examId}`)).ok(), 'closed exam not deletable');
+    const { rows } = await pg.query('SELECT (SELECT count(*) FROM attempts WHERE exam_id=$1)::int AS a, (SELECT count(*) FROM questions WHERE exam_id=$1)::int AS q', [examId]);
+    assert(rows[0].a === 0 && rows[0].q === 0, `left behind: ${JSON.stringify(rows[0])}`);
+  });
+
   console.log('\nMobile');
   await step('student portal works on an Android phone viewport', async () => {
     const { rows } = await pg.query('SELECT code, slug FROM exams WHERE id=$1', [exam2]);

@@ -130,7 +130,7 @@
           ${e.status === 'published' && !attempts ? '<button class="btn" id="unpub">Unpublish</button>' : ''}
           ${e.status === 'published' ? '<button class="btn danger" id="close">Close examination</button>' : ''}
           ${e.status === 'closed' ? '<button class="btn" id="reopen">Reopen</button>' : ''}
-          ${!attempts ? '<button class="btn danger small" id="del">Delete</button>' : ''}</div>
+          ${!attempts || e.status === 'closed' ? `<button class="btn danger small" id="del">${attempts ? 'Delete exam &amp; results' : 'Delete'}</button>` : ''}</div>
         <div class="row" style="margin-top:12px;gap:14px">
           <div><div class="muted">Examination code</div><span class="code" id="codeTxt">${esc(e.code)}</span></div>
           <div style="flex:1;min-width:240px"><div class="muted">Student link ${e.status === 'draft' ? '(active after publishing)' : ''}</div>
@@ -169,7 +169,11 @@
     on('#unpub', () => act(() => api('POST', `/api/exams/${id}/unpublish`), () => 'Back to draft.'));
     on('#close', () => { if (confirm('Close the examination? Students still writing will be submitted immediately.')) act(() => api('POST', `/api/exams/${id}/close`), (r) => `Closed. ${r.forcedSubmissions} active attempt(s) were submitted.`); });
     on('#reopen', () => act(() => api('POST', `/api/exams/${id}/reopen`), () => 'Reopened.'));
-    on('#del', async () => { if (confirm('Delete this examination and all its questions?')) { try { await api('DELETE', `/api/exams/${id}`); location.hash = '#/'; } catch (err) { fail(err); } } });
+    on('#del', async () => {
+      const ok = attempts
+        ? prompt(`This permanently deletes the questions AND all ${attempts} student results. Download Excel/PDF first.\n\nType the exam code ${e.code} to confirm:`)?.trim().toUpperCase() === e.code
+        : confirm('Delete this examination and all its questions?');
+      if (ok) { try { await api('DELETE', `/api/exams/${id}`); location.hash = '#/'; } catch (err) { fail(err); } } });
     on('#copyLink', () => copy(studentLink(e.slug)));
     on('#copyBoth', () => copy(`${e.title}\nLink: ${studentLink(e.slug)}\nExamination code: ${e.code}`));
     on('#saveSettings', async () => { try { await api('PUT', `/api/exams/${id}`, readSettings()); await reload(); flash('Settings saved.'); } catch (err) { fail(err, '#smsg'); } });

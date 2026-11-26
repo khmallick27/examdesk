@@ -352,7 +352,8 @@ app.put('/api/exams/:id', fac, asyncH(async (req, res) => {
 
 app.delete('/api/exams/:id', fac, asyncH(async (req, res) => {
   const e = await ownExam(req, res); if (!e) return;
-  if (await attemptCount(e.id)) return bad(res, 'An examination with student attempts cannot be deleted. Close it instead.', 409);
+  // Results are deleted with the exam (ON DELETE CASCADE), so only a closed exam may go.
+  if (e.status !== 'closed' && await attemptCount(e.id)) return bad(res, 'Close the examination before deleting it. Download the results first: deleting removes them permanently.', 409);
   await q('DELETE FROM exams WHERE id=$1', [e.id]);
   await audit(req.faculty.email, 'exam_delete', `exam ${e.id}: ${e.title}`, req.ip);
   res.json({ ok: true });

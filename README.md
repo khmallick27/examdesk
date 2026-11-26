@@ -55,6 +55,7 @@ Without `ADMIN_EMAIL` in development, an `admin@examdesk.local` account is creat
 4. **Publish.** This is refused until every question has 4 options, a correct answer, and approval. Then copy the link + code.
 5. **Results & monitoring:** live table (auto-refresh), search, warnings with a per-student activity log, **Release session** for a student whose device failed, and **Excel / PDF** export.
 6. **Close** the examination to submit everyone still writing immediately.
+7. **Free space (optional):** after downloading the Excel/PDF results, a closed examination can be deleted with **Delete exam & results** (you type the exam code to confirm). This permanently removes its questions, student answers and activity logs.
 
 ### Question paper format
 ```
