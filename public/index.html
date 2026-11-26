@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ExamDesk – RMGEC Purulia</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="brand">
+  <img src="/logo.png" alt="College logo">
+  <div class="grow">
+    <div class="t1">Ramkrishna Mahato Government Engineering College, Purulia</div>
+    <div class="t2">ExamDesk · Online MCQ Examination Portal</div>
+  </div>
+</header>
+<main class="wrap" style="max-width:820px">
+  <div class="grid2" style="gap:16px">
+    <section class="card">
+      <h2>Students</h2>
+      <p>Open the examination link shared by your teacher, or enter the examination code here.</p>
+      <form id="cf"><label class="f" for="code">Examination code</label>
+        <input type="text" id="code" maxlength="12" autocomplete="off" style="text-transform:uppercase;letter-spacing:2px" required>
+        <div id="msg"></div>
+        <div class="row" style="margin-top:12px"><button class="btn primary" type="submit">Continue</button></div></form>
+      <p class="muted">No account or sign-in is required.</p>
+    </section>
+    <section class="card">
+      <h2>Faculty</h2>
+      <p>Create examinations, import question papers, publish, monitor students and download results.</p>
+      <a class="btn primary" href="/faculty">Faculty sign in</a>
+    </section>
+  </div>
+</main>
+<script src="/index.js"></script>
+</body>
+</html>

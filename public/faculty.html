@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>ExamDesk – Faculty Portal</title>
+<link rel="icon" href="/logo.png">
+<link rel="stylesheet" href="/vendor/katex/katex.min.css">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="brand">
+  <img src="/logo.png" alt="College logo">
+  <div class="grow">
+    <div class="t1">Ramkrishna Mahato Government Engineering College, Purulia</div>
+    <div class="t2">ExamDesk · Faculty Examination Portal</div>
+  </div>
+  <nav class="nav hidden" id="nav">
+    <a href="#/">Examinations</a>
+    <a href="#/admin" id="navAdmin" class="hidden">Administration</a>
+    <button type="button" id="navPw">Password</button>
+    <button type="button" id="navOut">Sign out</button>
+  </nav>
+</header>
+<main id="app"><div class="wrap"><div class="card">Loading…</div></div></main>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true"><div class="box" id="modalBox"></div></div>
+<script src="/vendor/katex/katex.min.js"></script>
+<script src="/vendor/katex/contrib/auto-render.min.js"></script>
+<script src="/faculty.js"></script>
+</body>
+</html>

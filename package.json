@@ -1,0 +1,29 @@
+{
+  "name": "examdesk",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ExamDesk - MCQ examination portal for Ramkrishna Mahato Government Engineering College, Purulia",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/unit.test.js",
+    "e2e": "node test/e2e.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@xmldom/xmldom": "^0.9.12",
+    "exceljs": "^4.4.0",
+    "express": "^5.3.0",
+    "jszip": "^3.10.2",
+    "katex": "^0.19.1",
+    "mammoth": "^1.13.0",
+    "multer": "^2.5.0",
+    "pdfkit": "^0.21.0",
+    "pg": "^8.23.1",
+    "sanitize-html": "^2.18.2",
+    "tesseract.js": "^7.0.0"
+  }
+}
