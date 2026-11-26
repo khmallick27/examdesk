@@ -296,6 +296,74 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     assert(last === 429, `expected 429, got ${last}`);
   });
 
+  console.log('\nNAT, calculator, diagrams');
+  let exam3;
+  await step('faculty adds a NAT question in the editor; approval needs an answer range', async () => {
+    exam3 = (await (await fapi('POST', '/api/exams', { title: 'Machines NAT Quiz', duration_min: 20, marks_per_q: 1, negative_marks: 0.33 })).json()).id;
+    const png = fs.readFileSync(path.join(__dirname, 'fixtures', 'circuit.png')).toString('base64');
+    await fapi('POST', `/api/exams/${exam3}/questions`, { stem: `Identify the circuit:<br><img src="data:image/png;base64,${png}">`, options: ['RC', 'RL', 'RLC', 'LC'], correct: 0, approved: true });
+    const noRange = await fapi('POST', `/api/exams/${exam3}/questions`, { qtype: 'nat', stem: 'x?', approved: true });
+    assert(noRange.status() === 400, 'NAT approved without a range');
+    await F.goto(`${BASE}/faculty#/exam/${exam3}`);
+    await F.click('#addNat');
+    await F.waitForSelector('.qcard.is-nat');
+    const card = F.locator('.qcard.is-nat');
+    await card.locator('.ed[data-k=stem]').fill('A 4-pole, 50 Hz induction motor runs at 1440 rpm. The slip in % is');
+    await card.locator('.nmin').fill('3.95'); await card.locator('.nmax').fill('4.05');
+    await card.locator('.qm').fill('2');
+    await card.locator('.qa').check();
+    await card.locator('button[data-act=save]').click();
+    await F.waitForFunction(() => document.querySelectorAll('.qcard.ok').length === 2);
+    assert(await F.locator('.qcard.is-nat.ok .nmin').inputValue() === '3.95', 'range not saved');
+    const pub = await (await fapi('POST', `/api/exams/${exam3}/publish`)).json();
+    assert(pub.slug, 'publish failed: ' + JSON.stringify(pub));
+    exam3 = { id: exam3, ...pub };
+  });
+  await step('student zooms a diagram, uses the calculator, answers NAT on the keypad', async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1366, height: 860 } }); const P = await ctx.newPage();
+    await P.goto(`${BASE}/e/${exam3.slug}`); await P.waitForSelector('#regForm');
+    await register(P, 'Nat Student', '12500121077', exam3.code);
+    await P.waitForSelector('#palette .pq');
+    // diagram zoom
+    await P.click('.qbody img.zoomable');
+    await P.waitForSelector('#zoom:not(.hidden)');
+    const fit = parseInt(await P.textContent('#zoomPct'), 10);
+    await P.click('#zoom [data-z="+"]'); await P.click('#zoom [data-z="+"]');
+    assert(parseInt(await P.textContent('#zoomPct'), 10) > fit, 'zoom in did nothing');
+    await P.click('#zoom [data-z=x]');
+    await P.locator('.opt').nth(0).click();                      // MCQ correct
+    // calculator: sin(30) in degrees, then (1500-1440)/1500*100 for the slip
+    await P.click('#calcBtn');
+    for (const k of ['sin(', '3', '0', ')', '@eq']) await P.click(`.calc-keys [data-k="${k}"]`);
+    assert((await P.textContent('.calc-res')).trim() === '0.5', 'sin(30) != 0.5');
+    for (const k of ['@clear', '(', '1', '5', '0', '0', '−', '1', '4', '4', '0', ')', '÷', '1', '5', '0', '0', '×', '1', '0', '0', '@eq']) await P.click(`.calc-keys [data-k="${k}"]`);
+    assert((await P.textContent('.calc-res')).trim() === '4', 'slip calc wrong: ' + await P.textContent('.calc-res'));
+    await P.screenshot({ path: path.join(SHOTS, '11-calculator.png') });
+    await P.click('.calc-x');
+    // NAT keypad
+    await P.click('#bNext');
+    await P.waitForSelector('#natIn');
+    for (const k of ['-', '4', '.', '0', '0', '9']) await P.click(`.keypad [data-k="${k}"]`);
+    assert(/two decimal/.test(await P.textContent('#natHint')), 'third decimal not blocked');
+    assert(await P.inputValue('#natIn') === '-4.00', 'value ' + await P.inputValue('#natIn'));
+    await P.click('.keypad [data-k="-"]');                         // toggle sign -> 4.00
+    assert(await P.inputValue('#natIn') === '4.00', 'sign toggle');
+    await P.waitForSelector('#sync >> text=All answers saved');
+    assert(await P.locator('#palette .pq.ans').count() === 2, 'NAT not counted as answered');
+    await P.screenshot({ path: path.join(SHOTS, '12-nat-keypad.png') });
+    const token = await P.evaluate((k) => localStorage.getItem(k), `ed_tok_${exam3.slug}`);
+    const natQ = (await (await fetch(`${BASE}/api/attempt`, { headers: { Authorization: `Bearer ${token}` } })).json()).questions.find((x) => x.type === 'nat');
+    assert(natQ && !('nat_min' in natQ) && natQ.options.length === 0, 'NAT key leaked or wrong shape');
+    const bad = await fetch(`${BASE}/api/attempt/answers`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ items: [{ qid: natQ.id, c: '4.001' }] }) });
+    assert(bad.status === 400, `3-decimal NAT accepted: ${bad.status}`);
+    await P.click('#bSubmit'); await P.click('#sYes');
+    await P.waitForSelector('text=Examination submitted successfully');
+    await ctx.close();
+    const res = await (await fapi('GET', `/api/exams/${exam3.id}/results`)).json();
+    const a = res.attempts[0];
+    assert(Number(a.score) === 3 && Number(a.max_score) === 3 && a.correct_count === 2, `score ${a.score}/${a.max_score}`);
+  });
+
   await step('exam with results can be deleted only after closing; results go with it', async () => {
     assert((await fapi('DELETE', `/api/exams/${examId}`)).status() === 409, 'published exam with results was deletable');
     assert((await fapi('POST', `/api/exams/${examId}/close`)).ok(), 'close failed');

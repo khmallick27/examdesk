@@ -57,6 +57,12 @@ Without `ADMIN_EMAIL` in development, an `admin@examdesk.local` account is creat
 6. **Close** the examination to submit everyone still writing immediately.
 7. **Free space (optional):** after downloading the Excel/PDF results, a closed examination can be deleted with **Delete exam & results** (you type the exam code to confirm). This permanently removes its questions, student answers and activity logs.
 
+### Question types and exam tools
+- **MCQ:** four options, one correct answer, optional negative marking.
+- **NAT (Numerical Answer Type):** no options. The student types the answer on an **on-screen keypad** (0–9, decimal point, minus, Backspace, Clear), with up to **two decimal places**, and negative values are allowed. The key is a range (for example 3.95 to 4.05), as in GATE; an exact answer uses the same number twice. **No negative marking** for NAT.
+- **Scientific calculator:** a GATE-style calculator opens from the top bar during the exam (sin/cos/tan and inverses, sinh/cosh/tanh, log, ln, eˣ, 10ˣ, √, ∛, xʸ, n!, π, e, memory keys, Deg/Rad).
+- **Diagrams:** insert circuit diagrams, graphs and figures (PNG, JPG, SVG, WebP; up to 5 MB each) with the 🖼 Image button. Students click a diagram to open it full-screen and zoom in/out.
+
 ### Question paper format
 ```
 1. A 4-pole, 50 Hz induction motor runs at 1440 rpm. The slip is
@@ -68,6 +74,7 @@ Answer: B                      <- optional; shown as a suggestion only
 
 Q2. The RMS value of v(t) = Vm sin ωt is  (A) Vm/√2  (B) Vm/2  (C) √2Vm  (D) Vm
 ```
+- A question with **no options** is imported as **NAT**; `Answer: 4.95 to 5.05` (or `Answer: 5`) pre-fills its range for you to confirm.
 - Questions: `1.`, `1)`, `Q1.`, `Q.1`, or Word auto-numbering. Options: `(A)`, `A)`, `A.`, `(a)`, or Word lettered lists, one per line or all on one line.
 - Word equations (Equation Editor/OMML) are converted to LaTeX and rendered with KaTeX. Unicode symbols, subscripts, superscripts, tables, and embedded images are kept.
 - PDFs lose sub/superscripts and figures; attach diagrams in the review screen. Scanned pages are OCR'd (English, up to 20 pages); verify every symbol (OCR often reads √ as V).

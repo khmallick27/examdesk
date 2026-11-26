@@ -157,3 +157,47 @@ body.exam-on .exam { height: 100%; min-height: 0; }
 .qpane, .side { min-height: 0; }
 .lg.mk, .lg.amk { width: 22px; }
 input::placeholder { text-transform: none; letter-spacing: normal; }
+
+/* ---------- Diagrams: click to zoom ---------- */
+.qbody img.zoomable { cursor: zoom-in; border: 1px solid transparent; border-radius: 4px; }
+.qbody img.zoomable:hover { border-color: #9fb3cf; }
+.zoom { position: fixed; inset: 0; z-index: 60; background: rgba(10, 20, 40, .92); display: flex; flex-direction: column; }
+.zoom-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #fff; }
+.zoom-bar #zoomPct { min-width: 52px; text-align: center; font-weight: 700; }
+.zoom-area { flex: 1; overflow: auto; display: flex; padding: 16px; touch-action: pan-x pan-y pinch-zoom; }
+.zoom-area img { margin: auto; background: #fff; max-width: none; image-rendering: auto; }
+
+/* ---------- NAT answer + on-screen keypad ---------- */
+.nat { max-width: 340px; margin-top: 8px; }
+.nat-in { width: 100%; font: 700 24px ui-monospace, Consolas, monospace; text-align: right; padding: 10px 12px; border: 2px solid var(--navy-2); border-radius: 8px; background: #fff; }
+.nat-hint { min-height: 20px; font-size: 13px; color: var(--warn); margin: 4px 0; }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.keypad button { height: 50px; font-size: 20px; font-weight: 700; border: 1px solid #b9c1cc; border-radius: 8px; background: #f7f9fc; cursor: pointer; }
+.keypad button:active { background: #e3eaf5; }
+.keypad button.wide { font-size: 15px; grid-column: span 1; }
+.keypad button[data-k=back] { grid-column: span 2; }
+
+/* ---------- Scientific calculator ---------- */
+.calc-btn { background: #fff; color: var(--navy); border-color: #fff; }
+.calc { position: fixed; top: 84px; right: 16px; width: 360px; z-index: 55; background: #eef1f5; border: 1px solid #9aa5b4; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .25); user-select: none; }
+.calc-head { display: flex; align-items: center; padding: 8px 10px; background: var(--navy); color: #fff; border-radius: 10px 10px 0 0; cursor: move; touch-action: none; }
+.calc-x { background: none; border: 0; color: #fff; font-size: 18px; cursor: pointer; }
+.calc-screen { margin: 8px; background: #fff; border: 1px solid #9aa5b4; border-radius: 6px; padding: 6px 10px; text-align: right; font-family: ui-monospace, Consolas, monospace; }
+.calc-expr { min-height: 20px; font-size: 14px; color: var(--muted); word-break: break-all; }
+.calc-res { font-size: 24px; font-weight: 700; overflow-x: auto; }
+.calc-mode { display: flex; gap: 12px; padding: 0 10px 6px; font-size: 13px; align-items: center; }
+.calc-keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 5px; padding: 0 8px 10px; }
+.calc-keys button { height: 36px; border: 1px solid #b9c1cc; border-radius: 5px; background: #fff; font-size: 13px; cursor: pointer; padding: 0; }
+.calc-keys button.num { background: #f9fafb; font-weight: 700; font-size: 15px; }
+.calc-keys button.clr { background: #fde8e8; color: var(--bad); font-weight: 700; }
+.calc-keys button.eq { background: var(--ok); color: #fff; font-weight: 700; grid-column: span 4; }
+@media (max-width: 860px) {
+  .calc { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; border-radius: 12px 12px 0 0; }
+  .calc-btn { padding: 4px 10px; font-size: 18px; } .calc-lbl { display: none; }
+}
+
+/* Faculty editor: show MCQ or NAT fields */
+.qcard.is-nat .mcq-only, .qcard:not(.is-nat) .nat-only { display: none !important; }
+.qcard .qt { width: auto; padding: 4px 8px; font-size: 13px; }
+.natkey { background: #f3f7fd; border: 1px solid #c4d8f5; border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.natkey input { padding: 6px 8px; border: 1px solid #b9c1cc; border-radius: 6px; }

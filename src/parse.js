@@ -68,7 +68,9 @@ function toBlocks(html) {
 
 const Q_START = /^\s*(?:(?:Q(?:uestion)?\s*\.?\s*(?:No\.?\s*)?)(\d{1,3})\s*[.):\]-]?\s+|(\d{1,3})\s*[.)\]](?:\s+|(?=[A-Z])))/i; // OCR may drop the space: "3.A ..."; "2.5 A" is not a question number
 const ANSWER = /^\s*(?:Ans(?:wer)?|Correct\s*(?:option|answer)?|Key)\s*[:.\-–=]?\s*(?:option\s*)?\(?\s*([A-Da-d])\s*\)?\s*\.?\s*$/i;
-const OPT = /(^|\s)\(?([A-Da-d])\s*[).]\s*/g;
+// "Answer: 5.2", "Ans: -0.33", "Answer: 4.95 to 5.05" (a range, as in GATE NAT keys).
+const NAT_ANSWER = /^\s*(?:Ans(?:wer)?|Key)\s*[:.=–-]?\s*(-?\d+(?:\.\d+)?)(?:\s*(?:to|–|—|-)\s*(-?\d+(?:\.\d+)?))?\s*$/i;
+const OPT =/(^|\s)\(?([A-Da-d])\s*[).]\s*/g;
 
 // Option markers appearing in order (from letter `from`, 0 = A) inside one block. Returns [{at, end}] or [].
 function optionMarkers(text, from = 0) {
@@ -104,6 +106,8 @@ function parseQuestions(html, { source = 'docx' } = {}) {
 
     const ans = ANSWER.exec(text);
     if (ans && cur) { cur.suggested = ans[1].toUpperCase().charCodeAt(0) - 65; continue; }
+    const nat = NAT_ANSWER.exec(text);
+    if (nat && cur) { cur.nat = [Number(nat[1]), Number(nat[2] ?? nat[1])].sort((x, y) => x - y); continue; }
 
     const qs = Q_START.exec(text);
     let rest = block, restText = text, restMap = map, offset = 0;
@@ -131,10 +135,13 @@ function parseQuestions(html, { source = 'docx' } = {}) {
     warnings,
     questions: questions.map((q) => {
       const flags = [];
+      // No options at all = GATE numerical answer type (NAT).
+      const qtype = q.options.length ? 'mcq' : 'nat';
       let options = q.options.map((o) => clean(o.join('<br>')));
-      if (options.length !== 4) flags.push(`Found ${options.length} option(s); exactly 4 are required.`);
+      if (qtype === 'mcq' && options.length !== 4) flags.push(`Found ${options.length} option(s); exactly 4 are required.`);
+      if (qtype === 'nat') flags.push('No options found: imported as a Numerical Answer Type (NAT) question. Change the type if this is wrong.');
       options = options.slice(0, 4);
-      while (options.length < 4) options.push('');
+      while (qtype === 'mcq' && options.length < 4) options.push('');
       const stem = clean(q.stem.filter(Boolean).join('<br>'));
       const all = stem + options.join('');
       if (!stem) flags.push('Question text is empty.');
@@ -143,8 +150,10 @@ function parseQuestions(html, { source = 'docx' } = {}) {
       if (/�/.test(all)) flags.push('Contains unrecognised characters.');
       if (source === 'pdf') flags.push('Imported from PDF: subscripts, superscripts and figures may be lost.');
       if (source === 'ocr') flags.push('Read by OCR from a scanned page: verify every symbol and number.');
-      flags.push(q.suggested === null ? 'No answer found in the document: set the correct answer.' : 'Answer found in the document: confirm it before approving.');
-      return { stem, options, suggested: q.suggested, flags };
+      const found = qtype === 'nat' ? !!q.nat : q.suggested !== null;
+      flags.push(found ? 'Answer found in the document: confirm it before approving.' : 'No answer found in the document: set the correct answer.');
+      // A printed NAT range pre-fills the key, but the question stays unapproved until faculty confirms it.
+      return { qtype, stem, options, suggested: qtype === 'mcq' ? q.suggested : null, nat_min: q.nat ? q.nat[0] : null, nat_max: q.nat ? q.nat[1] : null, flags };
     }),
   };
 }

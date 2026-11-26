@@ -51,7 +51,7 @@ const loginLimit = limit(15 * 60_000, 10, (r) => `${r.ip}|${String((r.body && r.
 const tokenLimit = limit(60_000, 240, (r) => r.get('authorization') || r.ip);
 
 const small = express.json({ limit: '64kb' });
-const large = express.json({ limit: '12mb' });
+const large = express.json({ limit: '25mb' }); // questions embed high-resolution diagrams
 // One JSON parser for the API: large bodies only on faculty routes (question images), and req.body is always an object.
 app.use('/api', (req, res, next) => (/^\/(exams|admin)\b/.test(req.path) ? large : small)(req, res, (err) => { if (err) return next(err); req.body ??= {}; next(); }));
 const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -154,7 +154,7 @@ async function finalize(attemptId, mode) {
     const { rows } = await client.query('SELECT a.*, e.marks_per_q, e.negative_marks FROM attempts a JOIN exams e ON e.id=a.exam_id WHERE a.id=$1 FOR UPDATE OF a', [attemptId]);
     const a = rows[0];
     if (!a || a.status === 'submitted') { await client.query('COMMIT'); return; }
-    const { rows: qs } = await client.query('SELECT id, correct, marks, negative FROM questions WHERE exam_id=$1', [a.exam_id]);
+    const { rows: qs } = await client.query('SELECT id, correct, marks, negative, qtype, nat_min, nat_max FROM questions WHERE exam_id=$1', [a.exam_id]);
     const s = rules.score(qs, a.answers, a);
     await client.query(
       `UPDATE attempts SET status='submitted', submit_mode=$2, submitted_at = CASE WHEN $2='manual' THEN now() ELSE LEAST(now(), deadline_at) END,
@@ -183,7 +183,7 @@ app.get('/api/attempt', asyncH(async (req, res) => {
   else if (a.status === 'active') await q('UPDATE attempts SET last_seen_at=now() WHERE id=$1', [a.id]);
   const { rows: st } = await q('SELECT status FROM attempts WHERE id=$1', [a.id]);
   if (st[0].status === 'submitted') return res.json({ submitted: true, receipt: await receipt(a.id) });
-  const { rows: qs } = await q('SELECT id, stem, options, marks, negative FROM questions WHERE exam_id=$1', [a.exam_id]); // never select `correct` here
+  const { rows: qs } = await q('SELECT id, qtype, stem, options, marks, negative FROM questions WHERE exam_id=$1', [a.exam_id]); // never select the key (correct / nat_*) here
   const byId = new Map(qs.map((x) => [x.id, x]));
   res.json({
     submitted: false,
@@ -191,8 +191,8 @@ app.get('/api/attempt', asyncH(async (req, res) => {
     exam: { title: a.title, session: a.session_label, academicYear: a.academic_year, department: a.department },
     deadline: a.deadline_at, serverNow: new Date().toISOString(),
     questions: a.question_order.map((id) => byId.get(id)).filter(Boolean).map((x) => ({
-      id: x.id, stem: x.stem, options: x.options,
-      marks: Number(x.marks ?? a.marks_per_q), negative: Number(x.negative ?? a.negative_marks) })),
+      id: x.id, type: x.qtype, stem: x.stem, options: x.qtype === 'nat' ? [] : x.options,
+      marks: Number(x.marks ?? a.marks_per_q), negative: x.qtype === 'nat' ? 0 : Number(x.negative ?? a.negative_marks) })),
     answers: a.answers,
   });
 }));
@@ -203,12 +203,17 @@ app.post('/api/attempt/answers', asyncH(async (req, res) => {
   if (expired(a)) { await finalize(a.id, 'timeout'); return bad(res, 'Time is over. Your examination has been submitted.', 409, { code: 'SUBMITTED' }); }
   const items = Array.isArray(req.body && req.body.items) ? req.body.items.slice(0, 500) : [];
   const allowed = new Set(a.question_order);
+  const { rows: types } = await q('SELECT id, qtype FROM questions WHERE exam_id=$1', [a.exam_id]);
+  const isNat = new Set(types.filter((t) => t.qtype === 'nat').map((t) => t.id));
   const patch = {};
   for (const it of items) {
     const qid = Number(it.qid);
     if (!allowed.has(qid)) return bad(res, 'Unknown question.');
-    const c = it.c === null || it.c === undefined ? null : Number(it.c);
-    if (c !== null && ![0, 1, 2, 3].includes(c)) return bad(res, 'Invalid option.');
+    let c = it.c === null || it.c === undefined || it.c === '' ? null : it.c;
+    if (c !== null && isNat.has(qid)) {
+      c = String(c);
+      if (!rules.NAT_RE.test(c)) return bad(res, 'Numerical answer must be a number with at most two decimal places.');
+    } else if (c !== null && ![0, 1, 2, 3].includes((c = Number(c)))) return bad(res, 'Invalid option.');
     patch[qid] = { c, m: !!it.m, v: true };
   }
   await q("UPDATE attempts SET answers = answers || $2::jsonb, last_seen_at=now() WHERE id=$1 AND status='active'", [a.id, JSON.stringify(patch)]);
@@ -377,26 +382,31 @@ app.post('/api/exams/:id/import', fac, upload.single('file'), asyncH(async (req,
   const source = path.extname(req.file.originalname).slice(1).toLowerCase();
   for (const x of result.questions) {
     // correct stays NULL: the printed answer is only a suggestion until faculty confirms it.
-    await q('INSERT INTO questions(exam_id, position, stem, options, suggested, flags, source) VALUES ($1,$2,$3,$4,$5,$6,$7)',
-      [e.id, ++pos, x.stem, JSON.stringify(x.options), x.suggested, JSON.stringify(x.flags), source]);
+    await q('INSERT INTO questions(exam_id, position, stem, options, suggested, flags, source, qtype, nat_min, nat_max) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',
+      [e.id, ++pos, x.stem, JSON.stringify(x.options), x.suggested, JSON.stringify(x.flags), source, x.qtype, x.nat_min, x.nat_max]);
   }
   await audit(req.faculty.email, 'questions_import', `exam ${e.id}: ${result.questions.length} from ${req.file.originalname}`, req.ip);
   res.json({ added: result.questions.length, notes: result.notes });
 }));
 
 function questionFields(b) {
-  const options = Array.isArray(b.options) ? b.options.slice(0, 4).map(clean) : ['', '', '', ''];
-  while (options.length < 4) options.push('');
-  const correct = b.correct === null || b.correct === undefined || b.correct === '' ? null : Number(b.correct);
+  const nat = b.qtype === 'nat';
+  const options = nat ? [] : Array.isArray(b.options) ? b.options.slice(0, 4).map(clean) : ['', '', '', ''];
+  while (!nat && options.length < 4) options.push('');
   const numOrNull = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
-  const out = { stem: clean(b.stem), options, correct, approved: !!b.approved, marks: numOrNull(b.marks), negative: numOrNull(b.negative) };
+  const correct = nat ? null : numOrNull(b.correct);
+  const out = { qtype: nat ? 'nat' : 'mcq', stem: clean(b.stem), options, correct, approved: !!b.approved, marks: numOrNull(b.marks),
+    negative: nat ? null : numOrNull(b.negative), nat_min: nat ? numOrNull(b.nat_min) : null, nat_max: nat ? numOrNull(b.nat_max) : null };
   const errors = [];
   if (correct !== null && ![0, 1, 2, 3].includes(correct)) errors.push('Correct answer must be A, B, C or D.');
   for (const k of ['marks', 'negative']) if (out[k] !== null && !(out[k] >= 0 && out[k] <= 100)) errors.push(`Invalid ${k}.`);
+  for (const k of ['nat_min', 'nat_max']) if (out[k] !== null && !(Math.abs(out[k]) < 1e7)) errors.push('Answer range must be a number.');
+  if (out.nat_min !== null && out.nat_max !== null && out.nat_min > out.nat_max) errors.push('Answer range: "from" must not be larger than "to".');
   if (out.approved) {
     if (!out.stem) errors.push('Question text is empty.');
-    if (options.some((o) => !o)) errors.push('All four options are required.');
-    if (correct === null) errors.push('Select the correct answer before approving.');
+    if (nat && (out.nat_min === null || out.nat_max === null)) errors.push('Enter the answer range before approving.');
+    if (!nat && options.some((o) => !o)) errors.push('All four options are required.');
+    if (!nat && correct === null) errors.push('Select the correct answer before approving.');
   }
   return { errors, out };
 }
@@ -406,9 +416,9 @@ app.post('/api/exams/:id/questions', fac, asyncH(async (req, res) => {
   if (!(await editableQuestions(e, res))) return;
   const { errors, out } = questionFields(req.body || {});
   if (errors.length) return bad(res, errors.join(' '));
-  const { rows } = await q(`INSERT INTO questions(exam_id, position, stem, options, correct, approved, marks, negative)
-    VALUES ($1, (SELECT COALESCE(max(position),0)+1 FROM questions WHERE exam_id=$1), $2,$3,$4,$5,$6,$7) RETURNING *`,
-  [e.id, out.stem, JSON.stringify(out.options), out.correct, out.approved, out.marks, out.negative]);
+  const { rows } = await q(`INSERT INTO questions(exam_id, position, stem, options, correct, approved, marks, negative, qtype, nat_min, nat_max)
+    VALUES ($1, (SELECT COALESCE(max(position),0)+1 FROM questions WHERE exam_id=$1), $2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+  [e.id, out.stem, JSON.stringify(out.options), out.correct, out.approved, out.marks, out.negative, out.qtype, out.nat_min, out.nat_max]);
   res.json(rows[0]);
 }));
 
@@ -417,8 +427,9 @@ app.put('/api/exams/:id/questions/:qid', fac, asyncH(async (req, res) => {
   if (!(await editableQuestions(e, res))) return;
   const { errors, out } = questionFields(req.body || {});
   if (errors.length) return bad(res, errors.join(' '));
-  const { rows } = await q(`UPDATE questions SET stem=$3, options=$4, correct=$5, approved=$6, marks=$7, negative=$8 WHERE id=$2 AND exam_id=$1 RETURNING *`,
-    [e.id, Number(req.params.qid), out.stem, JSON.stringify(out.options), out.correct, out.approved, out.marks, out.negative]);
+  const { rows } = await q(`UPDATE questions SET stem=$3, options=$4, correct=$5, approved=$6, marks=$7, negative=$8, qtype=$9, nat_min=$10, nat_max=$11
+    WHERE id=$2 AND exam_id=$1 RETURNING *`,
+    [e.id, Number(req.params.qid), out.stem, JSON.stringify(out.options), out.correct, out.approved, out.marks, out.negative, out.qtype, out.nat_min, out.nat_max]);
   if (!rows[0]) return bad(res, 'Question not found.', 404);
   res.json(rows[0]);
 }));
@@ -435,7 +446,7 @@ app.post('/api/exams/:id/accept-suggested', fac, asyncH(async (req, res) => {
   const e = await ownExam(req, res); if (!e) return;
   if (!(await editableQuestions(e, res))) return;
   const { rowCount } = await q(`UPDATE questions SET correct=suggested, approved = (stem <> '' AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(options) o WHERE o = ''))
-    WHERE exam_id=$1 AND suggested IS NOT NULL AND correct IS NULL`, [e.id]);
+    WHERE exam_id=$1 AND qtype='mcq' AND suggested IS NOT NULL AND correct IS NULL`, [e.id]);
   await audit(req.faculty.email, 'answer_key_accept_suggested', `exam ${e.id}: ${rowCount} questions`, req.ip);
   res.json({ updated: rowCount });
 }));
@@ -448,9 +459,14 @@ app.post('/api/exams/:id/publish', fac, asyncH(async (req, res) => {
   rows.forEach((x, i) => {
     const n = `Q${i + 1}`;
     if (!x.stem) problems.push(`${n}: question text is empty.`);
-    if (x.options.some((o) => !o)) problems.push(`${n}: all four options are required.`);
-    if (x.correct === null) problems.push(`${n}: correct answer not set.`);
-    else if (!x.approved) problems.push(`${n}: not approved by faculty.`);
+    if (x.qtype === 'nat') {
+      if (x.nat_min === null || x.nat_max === null) problems.push(`${n}: numerical answer range not set.`);
+      else if (!x.approved) problems.push(`${n}: not approved by faculty.`);
+    } else {
+      if (x.options.some((o) => !o)) problems.push(`${n}: all four options are required.`);
+      if (x.correct === null) problems.push(`${n}: correct answer not set.`);
+      else if (!x.approved) problems.push(`${n}: not approved by faculty.`);
+    }
   });
   if (e.end_at && new Date(e.end_at) <= new Date()) problems.push('The scheduled end time is in the past.');
   if (problems.length) return bad(res, 'The examination cannot be published yet.', 422, { problems });

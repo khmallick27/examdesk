@@ -121,7 +121,7 @@
     const { exam: e, questions: qs, attempts } = await api('GET', `/api/exams/${id}`);
     const locked = e.status !== 'draft' || attempts > 0;
     const approved = qs.filter((q) => q.approved).length;
-    const suggestedPending = qs.filter((q) => q.suggested !== null && q.correct === null).length;
+    const suggestedPending = qs.filter((q) => q.qtype !== 'nat' && q.suggested !== null && q.correct === null).length;
     app.innerHTML = `<div class="wrap">
       <div class="row" style="margin-bottom:10px"><a href="#/">← Examinations</a><span class="spacer"></span><a class="btn" href="#/results/${e.id}">Results &amp; monitoring</a></div>
       <div class="card">
@@ -145,7 +145,7 @@
       ${locked ? `<div class="note">${attempts ? 'Students have attempted this examination, so questions are locked.' : 'Questions are locked while the examination is published. Unpublish to edit.'}</div>` : `
       <div class="card"><h2>Import questions from Word or PDF</h2>
         <p class="muted">Upload a .docx (recommended: keeps equations, sub/superscripts and diagrams), a text PDF, a scanned PDF, or a photo (.png/.jpg, read by OCR).
-        Number questions <b>1.</b> or <b>Q1.</b>; label options <b>(A) (B) (C) (D)</b> on separate lines or on one line. An optional line <b>Answer: B</b> is shown as a suggestion only.</p>
+        Number questions <b>1.</b> or <b>Q1.</b>; label options <b>(A) (B) (C) (D)</b> on separate lines or on one line. An optional line <b>Answer: B</b> is shown as a suggestion only. A question with <b>no options</b> becomes a <b>numerical (NAT)</b> question; a line like <b>Answer: 4.95 to 5.05</b> pre-fills its answer range for you to confirm.</p>
         <div class="row"><input type="file" id="file" accept=".docx,.pdf,.png,.jpg,.jpeg"><button class="btn primary" id="upload">Upload &amp; extract</button></div>
         <div id="imsg"></div></div>`}
 
@@ -156,9 +156,9 @@
           <button class="btn small" id="acceptAll">Review done – use document answers for these ${suggestedPending}</button></div>` : ''}
         <p class="muted">Each question must have its correct answer selected and be ticked <b>Faculty approved</b> before the examination can be published. Use \\( … \\) for LaTeX maths, e.g. \\( V_{rms} = \\frac{V_m}{\\sqrt{2}} \\).</p>
         <div id="qlist">${qs.map((q, i) => qcard(q, i, locked, e)).join('') || '<p class="muted">No questions yet.</p>'}</div>
-        ${locked ? '' : '<div class="row"><button class="btn" id="addQ">+ Add question manually</button></div>'}
+        ${locked ? '' : '<div class="row"><button class="btn" id="addQ">+ Add MCQ question</button><button class="btn" id="addNat">+ Add numerical (NAT) question</button></div>'}
       </div>
-      <input type="file" id="imgPick" accept="image/png,image/jpeg,image/gif" class="hidden">
+      <input type="file" id="imgPick" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden">
     </div>`;
     math($('#qlist'));
 
@@ -179,6 +179,8 @@
     on('#saveSettings', async () => { try { await api('PUT', `/api/exams/${id}`, readSettings()); await reload(); flash('Settings saved.'); } catch (err) { fail(err, '#smsg'); } });
     on('#acceptAll', () => { if (confirm('Copy the answers printed in the document into the answer key and approve those questions? Only do this after checking them.')) act(() => api('POST', `/api/exams/${id}/accept-suggested`), (r) => `${r.updated} question(s) updated.`); });
     on('#addQ', () => act(() => api('POST', `/api/exams/${id}/questions`, { stem: '', options: ['', '', '', ''] })));
+    on('#addNat', () => act(() => api('POST', `/api/exams/${id}/questions`, { qtype: 'nat', stem: '' })));
+    $('#qlist').addEventListener('change', (ev) => { if (ev.target.classList.contains('qt')) ev.target.closest('.qcard').classList.toggle('is-nat', ev.target.value === 'nat'); });
     on('#upload', async () => {
       const f = $('#file').files[0];
       if (!f) return fail(new Error('Choose a file first.'), '#imsg');
@@ -224,24 +226,32 @@
       ${SYMBOLS.map((s) => `<button type="button" data-cmd="sym:${s}">${s}</button>`).join('')}
       <button type="button" data-cmd="eq" title="Insert LaTeX maths">\\(…\\)</button><button type="button" data-cmd="img" title="Insert diagram image">🖼 Image</button></div>`;
     const flags = (q.flags || []).filter((f) => !(q.approved && /answer/i.test(f)));
-    return `<div class="qcard ${q.approved ? 'ok' : 'todo'}" data-id="${q.id}">
+    const nat = q.qtype === 'nat';
+    const opts = q.options.length ? q.options : ['', '', '', ''];
+    const dis = locked ? ' disabled' : '';
+    return `<div class="qcard ${q.approved ? 'ok' : 'todo'}${nat ? ' is-nat' : ''}" data-id="${q.id}">
       <div class="head"><b>Q${i + 1}</b><span class="pill ${q.approved ? 'published' : 'draft'}">${q.approved ? 'approved' : 'needs review'}</span>
+        <select class="qt" aria-label="Question type"${dis}><option value="mcq"${nat ? '' : ' selected'}>MCQ (4 options)</option><option value="nat"${nat ? ' selected' : ''}>Numerical answer (NAT)</option></select>
         <span class="muted">source: ${esc(q.source)}</span><span class="spacer"></span>
-        ${q.suggested !== null ? `<span class="muted">Document answer: <b>${'ABCD'[q.suggested]}</b></span>${locked ? '' : ` <button class="btn small" type="button" data-act="usesug" data-v="${q.suggested}">Use</button>`}` : ''}</div>
+        ${q.suggested !== null && !nat ? `<span class="muted">Document answer: <b>${'ABCD'[q.suggested]}</b></span>${locked ? '' : ` <button class="btn small" type="button" data-act="usesug" data-v="${q.suggested}">Use</button>`}` : ''}</div>
       ${flags.length && !q.approved ? `<div class="warnbox"><b>Check:</b><ul>${flags.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>` : ''}
       ${tools}
       <div class="ed" data-k="stem" contenteditable="${ce}" aria-label="Question ${i + 1} text">${q.stem}</div>
-      ${q.options.map((o, k) => `<div class="optrow"><label><input type="radio" name="c${q.id}" value="${k}"${q.correct === k ? ' checked' : ''}${locked ? ' disabled' : ''} aria-label="Option ${'ABCD'[k]} is correct"> (${'ABCD'[k]})</label>
-        <div class="ed" data-k="o${k}" contenteditable="${ce}" aria-label="Option ${'ABCD'[k]}">${o}</div></div>`).join('')}
+      <div class="mcq-only">${opts.map((o, k) => `<div class="optrow"><label><input type="radio" name="c${q.id}" value="${k}"${q.correct === k ? ' checked' : ''}${dis} aria-label="Option ${'ABCD'[k]} is correct"> (${'ABCD'[k]})</label>
+        <div class="ed" data-k="o${k}" contenteditable="${ce}" aria-label="Option ${'ABCD'[k]}">${o}</div></div>`).join('')}</div>
+      <div class="nat-only natkey"><b>Correct answer range</b> <span class="muted">(GATE style: any answer from … to … is correct; use the same number twice for an exact answer)</span>
+        <div class="row" style="margin-top:6px"><label>From <input type="number" class="nmin" step="0.01" style="width:130px" value="${q.nat_min ?? ''}"${dis}></label>
+        <label>To <input type="number" class="nmax" step="0.01" style="width:130px" value="${q.nat_max ?? ''}"${dis}></label>
+        <span class="muted">Students enter up to 2 decimal places. No negative marking for NAT.</span></div></div>
       <div class="row" style="margin-top:8px">
         <label class="muted">Marks <input type="number" class="qm" step="0.25" min="0" style="width:84px" value="${q.marks ?? ''}" placeholder="${e.marks_per_q}"${locked ? ' disabled' : ''}></label>
-        <label class="muted">Negative <input type="number" class="qn" step="0.01" min="0" style="width:84px" value="${q.negative ?? ''}" placeholder="${e.negative_marks}"${locked ? ' disabled' : ''}></label>
+        <label class="muted mcq-only">Negative <input type="number" class="qn" step="0.01" min="0" style="width:84px" value="${q.negative ?? ''}" placeholder="${e.negative_marks}"${locked ? ' disabled' : ''}></label>
         <span class="spacer"></span>
         <label class="row" style="gap:6px;font-weight:600"><input type="checkbox" class="qa"${q.approved ? ' checked' : ''}${locked ? ' disabled' : ''} style="width:18px;height:18px"> Faculty approved (question &amp; answer verified)</label>
         ${locked ? '' : '<button class="btn primary small" type="button" data-act="save">Save</button><button class="btn danger small" type="button" data-act="del">Delete</button>'}
       </div>
       <div class="cmsg"></div>
-      <details><summary class="muted">Student view preview</summary><div class="preview"><div>${q.stem}</div><ol type="A">${q.options.map((o) => `<li>${o}</li>`).join('')}</ol></div></details>
+      <details><summary class="muted">Student view preview</summary><div class="preview"><div>${q.stem}</div>${nat ? '<div class="muted">[ numerical answer box + on-screen keypad ]</div>' : `<ol type="A">${q.options.map((o) => `<li>${o}</li>`).join('')}</ol>`}</div></details>
     </div>`;
   }
 
@@ -249,15 +259,16 @@
     const ed = (k) => card.querySelector(`.ed[data-k="${k}"]`).innerHTML.replace(/^(<br>)+|(<br>)+$/g, '').trim();
     const r = card.querySelector('input[type=radio]:checked');
     return {
-      stem: ed('stem'), options: [0, 1, 2, 3].map((k) => ed('o' + k)), correct: r ? Number(r.value) : null,
+      qtype: card.querySelector('.qt').value, stem: ed('stem'), options: [0, 1, 2, 3].map((k) => ed('o' + k)), correct: r ? Number(r.value) : null,
       approved: card.querySelector('.qa').checked, marks: card.querySelector('.qm').value, negative: card.querySelector('.qn').value,
+      nat_min: card.querySelector('.nmin').value, nat_max: card.querySelector('.nmax').value,
     };
   }
 
   function insertImage(target) {
     const f = $('#imgPick').files[0]; $('#imgPick').value = '';
     if (!f || !target) return;
-    if (f.size > 1.5 * 1024 * 1024) return alert('Image is larger than 1.5 MB. Crop or compress it first.');
+    if (f.size > 5 * 1024 * 1024) return alert('Image is larger than 5 MB. Export it at a smaller size (e.g. 2000 px wide PNG) first.');
     const rd = new FileReader();
     rd.onload = () => { target.focus(); document.execCommand('insertImage', false, rd.result); };
     rd.readAsDataURL(f);

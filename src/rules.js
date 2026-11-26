@@ -27,6 +27,9 @@ function deadlineFor(exam, now = new Date()) {
   return d;
 }
 
+// NAT answers: optional minus, up to 7 digits, up to 2 decimals. Kept as text so "5.50" displays as typed.
+const NAT_RE = /^-?\d{1,7}(\.\d{1,2})?$/;
+
 const num = (v, dflt) => (v === null || v === undefined ? Number(dflt) : Number(v));
 
 // answers: { [questionId]: { c: 0..3 | null, m: bool } }
@@ -34,12 +37,14 @@ function score(questions, answers, exam) {
   let attempted = 0, correct = 0, incorrect = 0, total = 0, max = 0;
   for (const q of questions) {
     const marks = num(q.marks, exam.marks_per_q);
-    const neg = num(q.negative, exam.negative_marks);
+    const nat = q.qtype === 'nat';
+    const neg = nat ? 0 : num(q.negative, exam.negative_marks); // GATE: no negative marking for NAT
     max += marks;
     const a = answers[q.id];
     if (!a || a.c === null || a.c === undefined) continue;
     attempted++;
-    if (a.c === q.correct) { correct++; total += marks; } else { incorrect++; total -= neg; }
+    const right = nat ? Number(a.c) >= Number(q.nat_min) && Number(a.c) <= Number(q.nat_max) : a.c === q.correct;
+    if (right) { correct++; total += marks; } else { incorrect++; total -= neg; }
   }
   const r2 = (x) => Math.round(x * 100) / 100;
   return { attempted, correct, incorrect, unanswered: questions.length - attempted, score: r2(total), max: r2(max) };
@@ -53,4 +58,4 @@ function shuffled(ids, seed) {
   return a;
 }
 
-module.exports = { normRoll, normName, validateStudent, examWindow, deadlineFor, score, shuffled };
+module.exports = { NAT_RE, normRoll, normName, validateStudent, examWindow, deadlineFor, score, shuffled };

@@ -17,6 +17,7 @@
 
   let meta = null;      // public exam info
   let S = null;         // attempt state from server
+  let calc = null, natDraft = '';
   let cur = 0, offset = 0, running = false, pending = {}, inflight = false, backoff = 0, offlineSince = null, warnings = 0;
   const timers = [];
 
@@ -83,6 +84,8 @@
           <li>Your answer is saved automatically as soon as you select an option.</li>
           <li>Use <b>Save &amp; Next</b>, <b>Previous</b>, <b>Mark for Review</b> and <b>Clear Response</b>, or jump with the question palette.</li>
           <li>Questions answered and marked for review are evaluated.</li>
+          <li><b>Numerical Answer Type (NAT)</b> questions have no options: enter the number with the on-screen keypad (up to two decimal places; negative values allowed). There is no negative marking for NAT questions.</li>
+          <li>A <b>scientific calculator</b> is available from the top bar during the examination. Click a diagram to enlarge it.</li>
           <li>The examination is submitted automatically when the timer reaches zero.</li>
           <li>The examination runs in full screen. Switching tabs or apps, leaving full screen, copying and right-clicking are recorded and reported to the faculty.</li>
           <li>If your internet drops, keep working: answers are kept on this device and sent when the connection returns.</li>
@@ -195,7 +198,9 @@
   function startExam() {
     running = true;
     document.body.classList.add('exam-on');
-    $('#hdrRight').innerHTML = `<div>${esc(S.student.name)}</div><div>${esc(S.student.roll)}</div>`;
+    $('#hdrRight').innerHTML = `<div class="row" style="gap:12px;justify-content:flex-end"><button type="button" class="btn small calc-btn" id="calcBtn" aria-expanded="false" aria-label="Calculator">🖩<span class="calc-lbl"> Calculator</span></button>
+      <div><div>${esc(S.student.name)}</div><div>${esc(S.student.roll)}</div></div></div>`;
+    calc = window.Calc.mount($('#calcBtn'));
     app.innerHTML = `
     <div class="exam">
       <section class="qpane">
@@ -253,16 +258,74 @@
     $('#qno').textContent = `Question ${cur + 1} of ${S.questions.length}`;
     $('#qmarks').textContent = `Marks: +${q.marks}${q.negative ? `  |  Negative: −${q.negative}` : ''}`;
     const body = $('#qbody');
-    body.innerHTML = `<div class="stem">${q.stem}</div>` + q.options.map((o, i) => `
-      <label class="opt${a.c === i ? ' sel' : ''}"><input type="radio" name="opt" value="${i}"${a.c === i ? ' checked' : ''}>
-        <span class="letter">(${'ABCD'[i]})</span><span>${o}</span></label>`).join('');
-    body.querySelectorAll('input[name=opt]').forEach((r) => r.addEventListener('change', () => { save(q.id, Number(r.value), ans(q).m); renderQ(); }));
+    if (q.type === 'nat') {
+      natDraft = a.c === null || a.c === undefined ? '' : String(a.c);
+      body.innerHTML = `<div class="stem">${q.stem}</div>
+        <div class="nat"><label class="f" for="natIn">Your answer (numerical, up to 2 decimal places)</label>
+          <input id="natIn" class="nat-in" type="text" readonly inputmode="none" autocomplete="off" value="${esc(natDraft)}" aria-describedby="natHint">
+          <div class="nat-hint" id="natHint" aria-live="polite"></div>
+          <div class="keypad" role="group" aria-label="Number pad">${['7', '8', '9', '4', '5', '6', '1', '2', '3', '0', '.', '-'].map((k) => `<button type="button" data-k="${k}">${k === '-' ? '−' : k}</button>`).join('')}
+            <button type="button" data-k="back" class="wide">⌫ Backspace</button><button type="button" data-k="clear" class="wide">Clear</button></div></div>`;
+      body.querySelector('.keypad').addEventListener('click', (ev) => { const b = ev.target.closest('button'); if (b) natKey(q, b.dataset.k); });
+    } else {
+      body.innerHTML = `<div class="stem">${q.stem}</div>` + q.options.map((o, i) => `
+        <label class="opt${a.c === i ? ' sel' : ''}"><input type="radio" name="opt" value="${i}"${a.c === i ? ' checked' : ''}>
+          <span class="letter">(${'ABCD'[i]})</span><span>${o}</span></label>`).join('');
+      body.querySelectorAll('input[name=opt]').forEach((r) => r.addEventListener('change', () => { save(q.id, Number(r.value), ans(q).m); renderQ(); }));
+    }
+    body.querySelectorAll('img').forEach((img) => { img.classList.add('zoomable'); img.title = 'Click to enlarge'; img.addEventListener('click', () => openZoom(img.src)); });
     math(body);
     body.scrollTop = 0;
     $('#bPrev').disabled = cur === 0;
     $('#bNext').textContent = cur === S.questions.length - 1 ? 'Save' : 'Save & Next ▶';
     renderPalette();
   }
+
+  // GATE NAT: on-screen keypad only. Saved as soon as the text is a complete number; partial input ("-", "5.") is not saved.
+  const NAT_RE = /^-?\d{1,7}(\.\d{1,2})?$/;
+  function natKey(q, k) {
+    let v = natDraft;
+    if (k === 'back') v = v.slice(0, -1);
+    else if (k === 'clear') v = '';
+    else if (k === '-') v = v.startsWith('-') ? v.slice(1) : '-' + v;
+    else if (k === '.') { if (!v.includes('.')) v = (v === '' || v === '-' ? v + '0' : v) + '.'; }
+    else if (/^\d$/.test(k)) {
+      const [intPart, dec] = v.replace('-', '').split('.');
+      if (dec !== undefined && dec.length >= 2) return natHint('Only two decimal places are allowed.');
+      if (dec === undefined && intPart.length >= 7) return natHint('Maximum 7 digits before the decimal point.');
+      v = intPart === '0' && dec === undefined ? v.replace(/0$/, k) : v + k; // no leading zeros like "007"
+    }
+    natDraft = v;
+    $('#natIn').value = v;
+    if (v === '') { save(q.id, null, ans(q).m); natHint(''); }
+    else if (NAT_RE.test(v)) { save(q.id, v, ans(q).m); natHint(''); }
+    else return natHint('Incomplete number: not saved yet.');
+    renderPalette();
+  }
+  const natHint = (t) => { const h = $('#natHint'); if (h) h.textContent = t; };
+
+  let zoomScale = 1;
+  function openZoom(src) {
+    const img = $('#zoomImg');
+    img.src = src;
+    zoomScale = 1;
+    img.onload = () => setZoom('fit');
+    $('#zoom').classList.remove('hidden');
+    $('#zoom [data-z=x]').focus();
+  }
+  function setZoom(z) {
+    const img = $('#zoomImg'), area = $('#zoomArea');
+    if (z === 'fit') zoomScale = Math.min(1, area.clientWidth / img.naturalWidth, area.clientHeight / img.naturalHeight) || 1;
+    else zoomScale = Math.min(8, Math.max(0.2, zoomScale * (z === '+' ? 1.25 : 0.8)));
+    img.style.width = `${Math.round(img.naturalWidth * zoomScale)}px`;
+    $('#zoomPct').textContent = `${Math.round(zoomScale * 100)}%`;
+  }
+  $('#zoom').addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-z]');
+    if (b) { if (b.dataset.z === 'x') $('#zoom').classList.add('hidden'); else setZoom(b.dataset.z); }
+  });
+  $('#zoomArea').addEventListener('wheel', (ev) => { ev.preventDefault(); setZoom(ev.deltaY < 0 ? '+' : '-'); }, { passive: false });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') $('#zoom').classList.add('hidden'); });
 
   function renderPalette() {
     const counts = { '': 0, na: 0, ans: 0, mk: 0, amk: 0 };
@@ -373,6 +436,8 @@
 
   function stop() {
     running = false;
+    if (calc) calc.close();
+    $('#zoom').classList.add('hidden');
     timers.splice(0).forEach(clearInterval);
     document.body.classList.remove('exam-on');
     exitFullscreen();
